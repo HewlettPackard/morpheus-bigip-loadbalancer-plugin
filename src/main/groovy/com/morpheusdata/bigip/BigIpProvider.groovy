@@ -1564,7 +1564,12 @@ class BigIpProvider implements LoadBalancerProvider {
 				def profileResponse = createProfile(apiConfig + createParams)
 				createRtn.success = profileResponse.success
 				createRtn.msg = profileResponse.content?.message
-				createRtn.data = [category:"f5.profile.${loadBalancerProfile.loadBalancer.id}"]
+				if (createRtn.success) {
+					def externalId = profileResponse.profile?.fullPath ?: "/${loadBalancerProfile.partition}/${loadBalancerProfile.name}".toString()
+					loadBalancerProfile.externalId = externalId
+					createRtn.data = [category:BigIpUtility.getObjCategory('profile', loadBalancerProfile.loadBalancer), externalId:externalId,
+									  internalId:profileResponse.profile?.selfLink]
+				}
 			}
 
 			return createRtn
@@ -1898,6 +1903,7 @@ class BigIpProvider implements LoadBalancerProvider {
 			rtn.data = [authToken:results.authToken, pool:pool]
 			if(rtn.success == true) {
 				pool.externalId = results.pool?.fullPath
+				pool.category = BigIpUtility.getObjCategory('pool', loadBalancer)
 				//add pool memebers
 				if(pool.members?.size() > 0) {
 					def memberConfig = apiConfig + [name:pool.name, partition:pool.partition, authToken:results.authToken]
@@ -2029,6 +2035,7 @@ class BigIpProvider implements LoadBalancerProvider {
 			if (results.success) {
 				rtn.data = [authToken:results.authToken, policy:loadBalancerPolicy]
 				loadBalancerPolicy.externalId = "/${policyConfig.partition}/${policyConfig.policyName}".toString()
+				loadBalancerPolicy.category = BigIpUtility.getObjCategory('policy', loadBalancer)
 				loadBalancerPolicy.configMap = results.policy
 				loadBalancerPolicy.strategy = policyConfig.strategy.split('/').last()
 
