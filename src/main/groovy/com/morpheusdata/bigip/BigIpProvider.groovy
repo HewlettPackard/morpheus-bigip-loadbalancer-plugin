@@ -1511,6 +1511,18 @@ class BigIpProvider implements LoadBalancerProvider {
 				createRtn.success = true
 			}
 			if (loadBalancerProfile.serviceType == 'client-ssl') {
+				if (!loadBalancerProfile.sslCert) {
+					createRtn.success = false
+					createRtn.addError('sslCert', 'SSL Cert is required')
+					createRtn.msg = 'SSL Cert is required'
+					return createRtn
+				}
+				if (!loadBalancerProfile.sslCert.isNumber() && !loadBalancerProfile.sslCert.startsWith('/')) {
+					createRtn.success = false
+					createRtn.addError('sslCert', 'SSL Cert must be a full F5 path')
+					createRtn.msg = 'SSL Cert must be a full F5 path'
+					return createRtn
+				}
 				def certSvc = morpheus.async.loadBalancer.certificate
 				// if a morpheus or self signed cert is selected, it will need to be installed
 				if (loadBalancerProfile.sslCert.isNumber()) {
@@ -1542,7 +1554,7 @@ class BigIpProvider implements LoadBalancerProvider {
 						log.error("Error Installing Certificate on F5 Server. Perhaps it cannot reach the Morpheus Appliance URL For Cert transfer... ${rtn.msg ?: rtn.message}")
 						createRtn.success = false
 						createRtn.msg = "Unable to install rsa private key: ${rtn.message}"
-						return rtn
+						return createRtn
 					}
 
 					// if the cert installs correctly, add it to profileData
@@ -1563,7 +1575,7 @@ class BigIpProvider implements LoadBalancerProvider {
 			if(createRtn.success) {
 				def profileResponse = createProfile(apiConfig + createParams)
 				createRtn.success = profileResponse.success
-				createRtn.msg = profileResponse.content?.message
+				createRtn.msg = profileResponse.msg ?: profileResponse.content?.message
 				if (createRtn.success) {
 					def externalId = profileResponse.profile?.fullPath ?: "/${loadBalancerProfile.partition}/${loadBalancerProfile.name}".toString()
 					loadBalancerProfile.externalId = externalId
@@ -1576,7 +1588,9 @@ class BigIpProvider implements LoadBalancerProvider {
 		}
 		catch (Throwable t) {
 			log.error("Unable to create profile: ${t.message}", t)
-			rtn.msg = "Unable to create profile: ${t.message}"
+			createRtn.success = false
+			createRtn.msg = "Unable to create profile: ${t.message}"
+			return createRtn
 		}
 	}
 
@@ -3771,6 +3785,9 @@ class BigIpProvider implements LoadBalancerProvider {
 			if (serviceType == 'client-ssl') {
 				log.debug("profile params: ${params}")
 				def certInfo = getCertInfo(params)
+				if (!certInfo) {
+					return [success:false, msg:"SSL cert ${params.certName} not found on the F5", authToken:params.authToken]
+				}
 				def certRootName = params.certName
 				def certKeyName = params.certName
 				if (certKeyName.endsWith('.crt')) {
@@ -3922,10 +3939,13 @@ class BigIpProvider implements LoadBalancerProvider {
 		def out = callApi(reqParams, 'GET')
 
 		def name = params.certName
-		def certInfo = out.data.items.find { item -> item.name == name }
+		if (!name) {
+			return null
+		}
+		def certInfo = out.data?.items?.find { item -> item.name == name }
 		if (!certInfo) {
-			name = "${params.certName}${params.certName[-4..-1] == '.crt' ? '' : '.crt'}".toString()
-			certInfo = out.data.items.find { item -> item.name == name }
+			name = "${params.certName}${params.certName.endsWith('.crt') ? '' : '.crt'}".toString()
+			certInfo = out.data?.items?.find { item -> item.name == name }
 		}
 		return certInfo
 	}
